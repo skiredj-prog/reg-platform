@@ -27,7 +27,10 @@ published.
   configuration.
 - `claims_policy`: `CLAIMS.md` verbatim, section by section, with the status
   the file gives each section (`in_force`, `partly_in_force`, `draft`,
-  `unknown`). `present: false` before reg-conformance v0.7.0.
+  `unknown`). `present: false` before reg-conformance v0.7.0. `blocks`
+  keeps each section in file order (paragraphs with their bold lead-in,
+  quotes, lists, tables), each tagged with the part it sits under, so a
+  reader can show which part is in force.
 - `reference_kernel_replay`: reg-platform runs `runner.py --mode native` at
   the pinned commit and compares every registered vector with the
   registry's `native` value. A difference, a missing or an extra id fails

@@ -200,7 +200,10 @@ def parse_vector_index(text: str) -> dict:
 
 def parse_claims(text: str) -> dict:
     """CLAIMS.md, kept verbatim: which sections the file says are in force,
-    and for each section its quoted templates, list items and steps."""
+    and for each section its quoted templates, list items and steps.
+    `blocks` keeps every paragraph, quote, list and table in file order, each
+    tagged with the bold part it sits under, so a reader can render the
+    section as written."""
     parts = re.split(r"^## +(.+)$", text, flags=re.M)
     intro, rest = parts[0], parts[1:]
     in_force = None
@@ -219,6 +222,8 @@ def parse_claims(text: str) -> dict:
     for i in range(0, len(rest), 2):
         name, body = rest[i].strip(), rest[i + 1]
         quotes, bullets, steps, paras, tables = [], [], [], [], []
+        blocks: list[dict] = []
+        part: str | None = None
         q: list[str] = []
         table: list[list[str]] = []
         item: list[str] | None = None
@@ -226,18 +231,36 @@ def parse_claims(text: str) -> dict:
         buf: list[str] = []
 
         def flush():
-            nonlocal item, kind, buf, table, q
+            nonlocal item, kind, buf, table, q, part
             if item:
-                (bullets if kind == "bullet" else steps).append(md_plain(" ".join(item)))
+                text = md_plain(" ".join(item))
+                (bullets if kind == "bullet" else steps).append(text)
+                ordered = kind == "step"
+                last = blocks[-1] if blocks else None
+                if last and last["type"] == "list" and last["ordered"] == ordered:
+                    last["items"].append(text)
+                else:
+                    blocks.append({"type": "list", "ordered": ordered, "items": [text], "part": part})
             item, kind = None, None
             if buf:
-                paras.append(md_plain(" ".join(buf)))
+                raw = " ".join(buf)
+                paras.append(md_plain(raw))
+                lm = re.match(r"^\*\*([^*]+)\*\*\s*(.*)$", raw)
+                if lm:
+                    part = re.sub(r"[.:]$", "", lm.group(1).strip())
+                    blocks.append({"type": "paragraph", "lead": md_plain(lm.group(1)),
+                                   "text": md_plain(lm.group(2)), "part": part})
+                else:
+                    blocks.append({"type": "paragraph", "lead": None, "text": md_plain(raw), "part": part})
                 buf = []
             if table:
                 tables.append({"header": table[0], "rows": table[1:]})
+                blocks.append({"type": "table", "header": table[0], "rows": table[1:], "part": part})
                 table = []
             if q:
-                quotes.append(md_plain(" ".join(x for x in q if x)))
+                text = md_plain(" ".join(x for x in q if x))
+                quotes.append(text)
+                blocks.append({"type": "quote", "text": text, "part": part})
                 q = []
 
         for line in body.splitlines() + [""]:
@@ -289,6 +312,7 @@ def parse_claims(text: str) -> dict:
             "bullets": bullets,
             "steps": steps,
             "tables": tables,
+            "blocks": blocks,
         })
     return {"title": title, "status_line": status_line, "in_force_sections": in_force, "sections": sections}
 

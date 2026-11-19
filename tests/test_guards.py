@@ -207,6 +207,10 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(by["Mixed"]["parts_in_force"], ["Part b"])
         self.assertEqual(by["Later"]["status"], "draft")
         self.assertEqual(by["Later"]["bullets"], ["That a run is a score."])
+        mixed = by["Mixed"]["blocks"]
+        self.assertEqual([(b["type"], b["lead"], b["text"], b["part"]) for b in mixed],
+                         [("paragraph", "Part a.", "Text.", "Part a"), ("paragraph", "Part b.", "More.", "Part b")])
+        self.assertEqual(by["Later"]["blocks"], [{"type": "list", "ordered": False, "items": ["That a run is a score."], "part": None}])
 
     def test_native_replay_must_match_the_registry(self):
         p = build(self.f.tmp, None)
