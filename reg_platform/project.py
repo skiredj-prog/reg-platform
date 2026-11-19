@@ -6,9 +6,14 @@ It copies facts out of reg-conformance at one exact commit, recomputes what
 can be recomputed (structural admissibility, evidence binding), and records
 every disagreement instead of hiding it.
 
+The content of a projection depends on the pinned commit and on
+source.lock.json only: two honest builds of the same lock give the same
+content_sha256, whatever else the checkout holds (tags, other branches).
+
 Usage:
     python -m reg_platform.project --source ../reg-conformance \
-        --expect-commit b943f06... --out projection/projection-v1.json
+        --expect-commit b943f06... [--expect-tag v0.7.0] \
+        --out projection/projection-v1.json
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ import argparse
 import hashlib
 import itertools
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -28,7 +34,7 @@ except ImportError as exc:  # pragma: no cover
     raise SystemExit("PyYAML is required: pip install pyyaml") from exc
 
 CONTRACT = "reg-projection"
-CONTRACT_VERSION = "1.0.0"
+CONTRACT_VERSION = "1.1.0"
 ZERO_HASH = "0" * 64
 SOURCE_REPO = "https://github.com/skiredj-prog/reg-conformance"
 
@@ -40,6 +46,13 @@ STATE_NOT_EVALUATED = "not_evaluated" # catalog null, or evidence not bound
 STATE_REFUTED = "refuted"             # catalog false
 STATE_INADMISSIBLE = "inadmissible"   # structurally rejected
 
+VECTOR_FILES = ("core", "commit", "extended", "proposals")
+# YAML list key -> registry. Only "vectors" entries are registered vectors;
+# the other two lists hold proposals that the runner does not register.
+REGISTRY_KEYS = (("vectors", "vector"), ("candidates", "candidate"), ("non_validated", "non_validated"))
+INDEX_PATH = "VECTORS.md"
+CLAIMS_PATH = "CLAIMS.md"
+
 
 def git(source: Path, *args: str) -> str:
     return subprocess.run(
@@ -48,14 +61,33 @@ def git(source: Path, *args: str) -> str:
     ).stdout.strip()
 
 
-def load_yaml(path: Path):
-    with path.open(encoding="utf-8") as fh:
-        return yaml.safe_load(fh) or {}
+class Reader:
+    """Reads files of the checkout and remembers each one with its sha256,
+    so the projection can say exactly what it was built from."""
 
+    def __init__(self, source: Path):
+        self.source = source
+        self.files: dict[str, dict] = {}
 
-def load_json(path: Path):
-    with path.open(encoding="utf-8") as fh:
-        return json.load(fh)
+    def raw(self, rel: str) -> bytes:
+        data = (self.source / rel).read_bytes()
+        self.files[rel] = {"path": rel, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+        return data
+
+    def text(self, rel: str) -> str:
+        return self.raw(rel).decode("utf-8")
+
+    def yaml(self, rel: str):
+        return yaml.safe_load(self.text(rel)) or {}
+
+    def json(self, rel: str):
+        return json.loads(self.text(rel))
+
+    def exists(self, rel: str) -> bool:
+        return (self.source / rel).is_file()
+
+    def listing(self) -> list[dict]:
+        return [self.files[k] for k in sorted(self.files)]
 
 
 def config_id(cfg: dict, axes: list[str]) -> str:
@@ -85,7 +117,7 @@ def tracked_file_hashes(source: Path) -> dict[str, str]:
             continue
         p = source / rel
         if p.is_file():
-            out[hashlib.sha256(p.read_bytes()).hexdigest()] = rel
+            out.setdefault(hashlib.sha256(p.read_bytes()).hexdigest(), rel)
     return out
 
 
@@ -112,11 +144,171 @@ def evidence_bound(record: dict, hashes: dict[str, str]) -> tuple[bool, list[str
     return (not problems, problems, artifact)
 
 
-def build(source: Path, expect_commit: str | None) -> dict:
+# ---------------------------------------------------------------- markdown
+_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+
+
+def md_plain(s: str) -> str:
+    """Markdown inline -> plain text: links keep their text, code keeps its
+    content. The words are the source's; only the markup goes."""
+    s = _LINK.sub(r"\1", s)
+    s = s.replace("**", "").replace("`", "")
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def parse_vector_index(text: str) -> dict:
+    """VECTORS.md: the prose before the table, the status definitions it
+    gives, and one row per vector id."""
+    lines = text.splitlines()
+    rows: dict[str, dict] = {}
+    header = None
+    notes: list[str] = []
+    para: list[str] = []
+    for line in lines:
+        if line.startswith("|"):
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if header is None:
+                header = [c.lower() for c in cells]
+                continue
+            if all(set(c) <= set("-: ") for c in cells):
+                continue
+            row = dict(zip(header, cells))
+            vid = row.get("vector_id")
+            if vid:
+                rows[vid] = {
+                    "status": row.get("status") or None,
+                    "family": row.get("family") or None,
+                    "rfc": md_plain(row.get("rfc", "")) or None,
+                    "normative_property": md_plain(row.get("normative_property", "")) or None,
+                    "location": md_plain(row.get("location", "")) or None,
+                }
+        elif header is None:
+            if line.startswith("#"):
+                continue
+            if line.strip():
+                para.append(line.strip())
+            elif para:
+                notes.append(md_plain(" ".join(para)))
+                para = []
+    if para and header is None:
+        notes.append(md_plain(" ".join(para)))
+    definitions = {}
+    for m in re.finditer(r"`(IMPLEMENTED|DECLARED|RESERVED)` means ([^.]+)\.", text):
+        definitions[m.group(1)] = md_plain(m.group(2)) + "."
+    return {"rows": rows, "notes": notes, "status_definitions": definitions}
+
+
+def parse_claims(text: str) -> dict:
+    """CLAIMS.md, kept verbatim: which sections the file says are in force,
+    and for each section its quoted templates, list items and steps."""
+    parts = re.split(r"^## +(.+)$", text, flags=re.M)
+    intro, rest = parts[0], parts[1:]
+    in_force = None
+    m = re.search(r"in force:\s*(.+?)\.\s+The rest", intro, re.S)
+    if m:
+        in_force = [re.sub(r"\s+", " ", t).strip() for t in re.findall(r'"([^"]+)"', m.group(1))] or None
+    title = None
+    tm = re.search(r"^# +(.+)$", intro, flags=re.M)
+    if tm:
+        title = tm.group(1).strip()
+    status_line = None
+    if m:
+        sm = re.search(r"([^.\n]*in force:.+?\.\s+The rest[^.]*\.)", intro, re.S)
+        status_line = md_plain(sm.group(1)) if sm else None
+    sections = []
+    for i in range(0, len(rest), 2):
+        name, body = rest[i].strip(), rest[i + 1]
+        quotes, bullets, steps, paras, tables = [], [], [], [], []
+        q: list[str] = []
+        table: list[list[str]] = []
+        item: list[str] | None = None
+        kind = None
+        buf: list[str] = []
+
+        def flush():
+            nonlocal item, kind, buf, table, q
+            if item:
+                (bullets if kind == "bullet" else steps).append(md_plain(" ".join(item)))
+            item, kind = None, None
+            if buf:
+                paras.append(md_plain(" ".join(buf)))
+                buf = []
+            if table:
+                tables.append({"header": table[0], "rows": table[1:]})
+                table = []
+            if q:
+                quotes.append(md_plain(" ".join(x for x in q if x)))
+                q = []
+
+        for line in body.splitlines() + [""]:
+            s = line.rstrip()
+            if s.startswith(">"):
+                if not q:
+                    flush()
+                q.append(s.lstrip(">").strip())
+                continue
+            if s.startswith("|"):
+                if not table:
+                    flush()
+                cells = [md_plain(c) for c in s.strip().strip("|").split("|")]
+                if not all(set(c) <= set("-: ") for c in cells):
+                    table.append(cells)
+                continue
+            bm = re.match(r"^- +(.*)$", s)
+            nm = re.match(r"^\d+\. +(.*)$", s)
+            if bm or nm:
+                flush()
+                kind = "bullet" if bm else "step"
+                item = [(bm or nm).group(1)]
+            elif s.startswith("  ") and item is not None:
+                item.append(s.strip())
+            elif not s.strip():
+                flush()
+            else:
+                if item is not None or table or q:
+                    flush()
+                buf.append(s.strip())
+        # Bold lead-ins ("**What counts as an admission.**") name the parts
+        # of a section; CLAIMS.md may put one part in force and not the rest.
+        parts = [re.sub(r"[.:]$", "", m.group(1).strip())
+                 for m in re.finditer(r"^\*\*([^*]+)\*\*", body, flags=re.M)]
+        if in_force is None:
+            status, parts_in_force = "unknown", []
+        elif name in in_force:
+            status, parts_in_force = "in_force", []
+        else:
+            parts_in_force = [x for x in parts if x in in_force]
+            status = "partly_in_force" if parts_in_force else "draft"
+        sections.append({
+            "title": name,
+            "status": status,
+            "parts": parts,
+            "parts_in_force": parts_in_force,
+            "paragraphs": paras,
+            "quotes": quotes,
+            "bullets": bullets,
+            "steps": steps,
+            "tables": tables,
+        })
+    return {"title": title, "status_line": status_line, "in_force_sections": in_force, "sections": sections}
+
+
+def vector_lines(text: str) -> dict[str, int]:
+    out = {}
+    for n, line in enumerate(text.splitlines(), 1):
+        m = re.match(r"^\s*-\s+id:\s*[\"']?([^\"'\s#]+)", line)
+        if m:
+            out.setdefault(m.group(1), n)
+    return out
+
+
+def build(source: Path, expect_commit: str | None, expect_tag: str | None = None) -> dict:
     findings: list[dict] = []
 
     def finding(level: str, code: str, message: str, **extra):
         findings.append({"level": level, "code": code, "message": message, **extra})
+
+    R = Reader(source)
 
     # --- source identity -------------------------------------------------
     commit = git(source, "rev-parse", "HEAD")
@@ -126,21 +318,26 @@ def build(source: Path, expect_commit: str | None) -> dict:
     if expect_commit and not commit.startswith(expect_commit):
         finding("error", "SRC-COMMIT", f"HEAD is {commit}, expected {expect_commit}.")
     commit_date = git(source, "show", "-s", "--format=%cI", commit)
-    try:
-        describe = git(source, "describe", "--tags", "--match", "v*", commit)
-    except subprocess.CalledProcessError:
-        describe = None
-    exact_tag = None
-    try:
-        exact_tag = git(source, "describe", "--tags", "--exact-match", "--match", "v*", commit)
-    except subprocess.CalledProcessError:
-        pass
+    # The tag comes from the lock, never from whatever tags the clone holds,
+    # so the content does not depend on the state of the clone.
+    tag = None
+    if expect_tag:
+        try:
+            tagged = git(source, "rev-parse", "--verify", "-q", f"refs/tags/{expect_tag}^{{commit}}")
+        except subprocess.CalledProcessError:
+            tagged = ""
+        if tagged != commit:
+            finding("error", "SRC-TAG",
+                    f"source.lock.json names tag {expect_tag}, which "
+                    f"{'points to ' + tagged if tagged else 'does not exist in the checkout'}, not {commit}.")
+        else:
+            tag = expect_tag
 
     # --- catalogue -------------------------------------------------------
-    hyp = load_yaml(source / "catalog/hypotheses-v1.yaml")
-    rules = load_yaml(source / "catalog/compatibility-rules-v1.yaml")
-    caps = load_yaml(source / "catalog/capabilities-v1.yaml")
-    valid = load_json(source / "catalog/valid-configurations-v1.1.0.json")
+    hyp = R.yaml("catalog/hypotheses-v1.yaml")
+    rules = R.yaml("catalog/compatibility-rules-v1.yaml")
+    caps = R.yaml("catalog/capabilities-v1.yaml")
+    valid = R.json("catalog/valid-configurations-v1.1.0.json")
 
     axes = list(hyp["axes"].keys())
     axis_defs = []
@@ -161,11 +358,20 @@ def build(source: Path, expect_commit: str | None) -> dict:
                 f"valid-configurations declares rules_version {valid.get('rules_version')}, "
                 f"compatibility-rules-v1.yaml declares {rules.get('version')}.")
 
+    rule_defs = [{
+        "clause_id": c["clause_id"],
+        "rule_id": c["rule_id"],
+        "description": c["description"],
+        "condition": {"field": c["condition"]["field"], "value": c["condition"]["value"]},
+        "requires": {"field": c["requires"]["field"], "allowed_values": list(c["requires"]["allowed_values"])},
+    } for c in rules["constraints"]]
+
     # guarantee records
     records = {}
     hashes = tracked_file_hashes(source)
     for p in sorted((source / "capabilities/v1.0.0").glob("*.json")):
-        r = load_json(p)
+        rel = f"capabilities/v1.0.0/{p.name}"
+        r = R.json(rel)
         bound, problems, artifact = evidence_bound(r, hashes)
         records[r["capability_id"]] = {
             "id": r["capability_id"],
@@ -182,12 +388,14 @@ def build(source: Path, expect_commit: str | None) -> dict:
             "demonstration_scope": r.get("demonstration_scope"),
             "status_note": r.get("status_note"),
             "known_limits": r.get("limitations", {}).get("known_limits", []),
-            "source_path": f"capabilities/v1.0.0/{p.name}",
+            "source_path": rel,
+            "source_sha256": R.files[rel]["sha256"],
         }
 
     for rec in records.values():
         perim = {k: v for k, v in rec["deployment_perimeter"].items() if k in axes}
         clash = [v for v in violations_for(perim, rules["constraints"]) if v["field"] in perim]
+        rec["perimeter_rejected_by"] = [v["clause_id"] for v in clash]
         if clash:
             finding("warning", "REC-PERIMETER",
                     f"Record {rec['id']} declares a perimeter the rules reject "
@@ -252,45 +460,91 @@ def build(source: Path, expect_commit: str | None) -> dict:
         finding("error", "CAT-COUNT", f"{len(configurations)} configurations projected, {expected_total} expected.")
 
     # --- vectors ---------------------------------------------------------
+    index = None
+    if R.exists(INDEX_PATH):
+        index = parse_vector_index(R.text(INDEX_PATH))
+    else:
+        finding("warning", "VEC-INDEX-ABSENT", f"{INDEX_PATH} is absent; vectors carry no index status.")
+
     vectors = []
-    for name in ("core", "commit", "extended", "proposals"):
-        data = load_yaml(source / f"vectors/{name}.yaml")
-        for v in data.get("vectors", []) + data.get("candidates", []) + data.get("non_validated", []):
-            vectors.append({
-                "id": v["id"],
-                "file": f"vectors/{name}.yaml",
-                "category": v.get("category"),
-                "status": v.get("status"),
-                "rfc": v.get("rfc"),
-                "property": v.get("property"),
-                "expected": v.get("expected"),
-                # The runner's native mode runs the repository's reference
-                # kernel. It is not a result for any product.
-                "reference_kernel_result": v.get("native"),
-                "note": v.get("note"),
-            })
+    for name in VECTOR_FILES:
+        rel = f"vectors/{name}.yaml"
+        text = R.text(rel)
+        data = yaml.safe_load(text) or {}
+        lines = vector_lines(text)
+        for key, registry in REGISTRY_KEYS:
+            for v in data.get(key, []) or []:
+                row = index["rows"].get(v["id"]) if index and registry == "vector" else None
+                vectors.append({
+                    "id": v["id"],
+                    "registry": registry,
+                    "file": rel,
+                    "line": lines.get(v["id"]),
+                    "category": v.get("category"),
+                    "status": v.get("status"),
+                    "rfc": v.get("rfc"),
+                    "property": v.get("property"),
+                    "input": v.get("input"),
+                    "intended": v.get("intended"),
+                    "expected": v.get("expected"),
+                    "observed": v.get("observed"),
+                    "reference": v.get("reference"),
+                    "superseded_by": list(v.get("superseded_by") or []),
+                    # The runner's native mode runs the repository's reference
+                    # kernel. It is not a result for any product.
+                    "reference_kernel_result": v.get("native"),
+                    "note": v.get("note"),
+                    "index": row,
+                })
     ids = [v["id"] for v in vectors]
     dupes = sorted({i for i in ids if ids.count(i) > 1})
     if dupes:
         finding("error", "VEC-DUPLICATE", f"Duplicate vector ids: {', '.join(dupes)}.")
-    dist = source / "vectors/dist/vectors.json"
-    if dist.exists():
-        dist_ids = sorted(x["id"] for x in load_json(dist)["vectors"])
-        if dist_ids != sorted(ids):
+    registered = [v for v in vectors if v["registry"] == "vector"]
+    # Rows the index lists with no registered vector: properties the RFCs
+    # state that no vector of the runner exercises. Shown, not hidden.
+    registered_ids = {v["id"] for v in registered}
+    index_only = [{"id": k, **row} for k, row in (index["rows"].items() if index else []) if k not in registered_ids]
+    if index is not None:
+        missing = [v["id"] for v in registered if v["index"] is None]
+        if missing:
+            finding("warning", "VEC-INDEX-MISSING",
+                    f"Registered vectors without a row in {INDEX_PATH}: {', '.join(missing)}.")
+    dist_rel = "vectors/dist/vectors.json"
+    if R.exists(dist_rel):
+        dist_ids = sorted(x["id"] for x in R.json(dist_rel)["vectors"])
+        if dist_ids != sorted(v["id"] for v in registered) and dist_ids != sorted(ids):
             finding("warning", "VEC-DIST-STALE", "vectors/dist/vectors.json differs from the YAML sources.")
 
     invariants = [
         {"id": i["id"], "name": i["name"], "property": i["property"],
-         "formerly": i.get("formerly"), "verification": i.get("verification")}
+         "formerly": i.get("formerly"), "verification": i.get("verification"),
+         "scope": i.get("scope"), "applies_to": list(i.get("applies_to") or []),
+         "contract_ref": i.get("contract_ref")}
         for i in caps.get("normative_invariants", [])
     ]
+
+    # --- claim policy ----------------------------------------------------
+    claims_policy = {"present": False, "path": CLAIMS_PATH, "sha256": None}
+    if R.exists(CLAIMS_PATH):
+        parsed = parse_claims(R.text(CLAIMS_PATH))
+        claims_policy = {"present": True, "path": CLAIMS_PATH, "sha256": R.files[CLAIMS_PATH]["sha256"], **parsed}
+        if parsed["in_force_sections"] is None:
+            finding("warning", "CLAIMS-STATUS",
+                    f"{CLAIMS_PATH} does not say which sections are in force in a form this projection reads; "
+                    "every section is shown with an unknown status.")
 
     def count(items, key):
         out: dict[str, int] = {}
         for it in items:
-            out[str(it[key])] = out.get(str(it[key]), 0) + 1
+            k = key(it) if callable(key) else it[key]
+            out[str(k)] = out.get(str(k), 0) + 1
         return dict(sorted(out.items()))
 
+    def index_status(v):
+        return (v["index"] or {}).get("status") or "UNINDEXED"
+
+    passes = [v for v in registered if v["reference_kernel_result"] == "PASS"]
     summary = {
         "configurations_total": len(configurations),
         "configurations_admissible": sum(c["admissible_structural"] for c in configurations),
@@ -298,8 +552,19 @@ def build(source: Path, expect_commit: str | None) -> dict:
         "guarantee_records_total": len(records),
         "guarantee_records_bound": sum(r["evidence_bound"] for r in records.values()),
         "vectors_total": len(vectors),
+        "vectors_registered": len(registered),
+        "candidates_total": len(vectors) - len(registered),
+        "vectors_superseded": sum(1 for v in registered if v["superseded_by"]),
         "vectors_by_status": count(vectors, "status"),
-        "vectors_by_reference_kernel_result": count(vectors, "reference_kernel_result"),
+        "vectors_by_index_status": count(registered, index_status),
+        "vectors_by_reference_kernel_result": count(registered, "reference_kernel_result"),
+        "index_rows_without_vector": len(index_only),
+        "index_rows_without_vector_by_status": count(index_only, lambda r: r.get("status") or "UNINDEXED"),
+        "reference_kernel_pass": {
+            "total": len(passes),
+            "by_index_status": count(passes, index_status),
+            "superseded": sum(1 for v in passes if v["superseded_by"]),
+        },
     }
 
     errors = [f for f in findings if f["level"] == "error"]
@@ -311,11 +576,11 @@ def build(source: Path, expect_commit: str | None) -> dict:
             "repository": SOURCE_REPO,
             "commit": commit,
             "commit_date": commit_date,
-            "describe": describe,
-            "exact_tag": exact_tag,
+            "exact_tag": tag,
             "catalog_version": valid.get("catalog_version"),
             "rules_version": rules.get("version"),
             "capabilities_version": caps.get("version"),
+            "files": R.listing(),
         },
         "claims": {
             # Nothing in this projection lets anyone say a product conforms
@@ -331,10 +596,19 @@ def build(source: Path, expect_commit: str | None) -> dict:
         },
         "summary": summary,
         "axes": axis_defs,
+        "rules": rule_defs,
         "invariants": invariants,
         "guarantee_records": sorted(records.values(), key=lambda r: r["id"]),
         "configurations": configurations,
+        "vector_index": {
+            "present": index is not None,
+            "path": INDEX_PATH,
+            "notes": index["notes"] if index else [],
+            "status_definitions": index["status_definitions"] if index else {},
+            "rows_without_vector": index_only,
+        },
         "vectors": vectors,
+        "claims_policy": claims_policy,
     }
     projection["content_sha256"] = content_hash(projection)
     return projection
@@ -353,17 +627,19 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--source", required=True, type=Path)
     ap.add_argument("--expect-commit")
+    ap.add_argument("--expect-tag", default="")
     ap.add_argument("--out", required=True, type=Path)
     args = ap.parse_args(argv)
-    projection = build(args.source.resolve(), args.expect_commit)
+    projection = build(args.source.resolve(), args.expect_commit, args.expect_tag or None)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(projection, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     for f in projection["guards"]["findings"]:
         print(f"[{f['level']}] {f['code']}: {f['message']}", file=sys.stderr)
     s = projection["summary"]
-    print(f"projection {projection['content_sha256'][:12]} from {projection['source']['commit'][:12]}: "
+    print(f"projection {projection['content_sha256'][:12]} from {projection['source']['commit'][:12]}"
+          f"{' (' + projection['source']['exact_tag'] + ')' if projection['source']['exact_tag'] else ''}: "
           f"{s['configurations_admissible']}/{s['configurations_total']} admissible, "
-          f"{s['configurations_by_state']}, {s['vectors_total']} vectors")
+          f"{s['configurations_by_state']}, {s['vectors_registered']} vectors + {s['candidates_total']} candidates")
     return 0 if projection["guards"]["passed"] else 1
 
 

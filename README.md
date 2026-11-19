@@ -40,6 +40,7 @@ such a projection.
 |---|---|---|
 | `SRC-DIRTY` | error | the reg-conformance checkout has uncommitted changes |
 | `SRC-COMMIT` | error | HEAD is not the pinned commit |
+| `SRC-TAG` | error | the lock names a tag that does not point to the pinned commit |
 | `CAT-MISSING`, `CAT-COUNT` | error | the catalogue does not list every axis combination |
 | `CAT-ADMISSIBILITY` | error | the catalogue's `admissible_structural` disagrees with the rules recomputed here |
 | `CAT-REF` | error | a configuration cites a guarantee record that does not exist |
@@ -48,6 +49,12 @@ such a projection.
 | `CAT-RULES-VERSION` | warning | the catalogue and the rules file declare different rule versions |
 | `REC-PERIMETER` | warning | a guarantee record declares a perimeter the rules reject |
 | `VEC-DIST-STALE` | warning | `vectors/dist/vectors.json` differs from the YAML sources |
+| `VEC-INDEX-ABSENT`, `VEC-INDEX-MISSING` | warning | `VECTORS.md` is absent, or has no row for a registered vector |
+| `CLAIMS-STATUS` | warning | `CLAIMS.md` does not say, in a form read here, which sections are in force |
+
+**Reproducible.** The content depends on `source.lock.json` only: the
+commit, and the tag when the lock names one. Tags the clone happens to hold
+change nothing; a test checks it.
 
 **Bound evidence.** A guarantee record is bound only when its
 `test_results_hash` is the sha256 of a file tracked in reg-conformance at the
@@ -59,16 +66,26 @@ evidence.
 `partial` (bound, loopback-test-only), `not_evaluated`, `refuted`,
 `inadmissible`. A state is never inferred from structural admissibility.
 
+**Vectors.** Only the `vectors:` lists of `vectors/*.yaml` are registered
+vectors; `candidates:` and `non_validated:` are proposals and are counted
+apart. Each vector carries its row of `VECTORS.md`, whose status a quote must
+keep (CLAIMS.md). Index rows with no registered vector are projected too:
+they are properties the RFCs state that no vector exercises yet.
+
 **No claims.** `claims.conformance_claims_allowed` is false and
-`claims.subjects` is empty in contract v1.0. Results of the runner's native
+`claims.subjects` is empty in contract 1.x. Results of the runner's native
 mode are projected as `reference_kernel_result`: they describe the
-repository's reference kernel, never a product. Subject runs arrive in
-contract v1.1.
+repository's reference kernel, never a product.
+
+Contract history: [contracts/CHANGELOG.md](contracts/CHANGELOG.md).
 
 ## State at the pinned commit (b943f06)
 
 42 of 144 configurations are admissible; all 42 are `not_evaluated`. None of
-the 13 guarantee records is bound. 60 vector ids.
+the 13 guarantee records is bound. 56 registered vectors (14 IMPLEMENTED,
+17 DECLARED, 25 RESERVED in `VECTORS.md`; 14 pass on the reference kernel),
+plus 4 proposals the runner does not register. 28 rows of `VECTORS.md` have
+no registered vector.
 
 Two warnings are open in reg-conformance and are reported, not fixed, here:
 `valid-configurations-v1.1.0.json` declares rules 2.0.0 while
@@ -78,7 +95,8 @@ reject, and its results hash matches no file in the repository.
 
 ## Updating the data
 
-1. Change `commit` in `source.lock.json`.
+1. Change `commit` in `source.lock.json`, and `tag` when the commit carries
+   one (for example `"tag": "v0.7.0"`).
 2. Run `./run_all.sh`.
 3. Commit `source.lock.json`, `projection/` and `badges/` together.
 4. In reg-site, run `npm run pin` to take the new `content_sha256`.

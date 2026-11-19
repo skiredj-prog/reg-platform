@@ -1,15 +1,40 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://reg.tenirlabs.cc/contracts/projection-v1.schema.json",
-  "title": "REG projection v1.0.0",
-  "description": "The only data the presentation layer reads. Produced by reg-platform from one exact reg-conformance commit. A projection never lets a reader infer conformance: claims.conformance_claims_allowed is false until a subject run with bound evidence is projected, and a configuration state other than not_evaluated or inadmissible requires bound evidence on every record it cites.",
+  "title": "REG projection v1.1.0",
+  "description": "The only data the presentation layer reads. Produced by reg-platform from one exact reg-conformance commit, named in source.lock.json; the content depends on that lock only. A projection never lets a reader infer conformance: claims.conformance_claims_allowed is false until a subject run with bound evidence is projected, and a configuration state other than not_evaluated or inadmissible requires bound evidence on every record it cites.",
   "type": "object",
-  "required": ["contract", "contract_version", "generated_at", "source", "claims", "guards", "summary", "axes", "invariants", "guarantee_records", "configurations", "vectors", "content_sha256"],
+  "required": [
+    "contract",
+    "contract_version",
+    "generated_at",
+    "source",
+    "claims",
+    "guards",
+    "summary",
+    "axes",
+    "rules",
+    "invariants",
+    "guarantee_records",
+    "configurations",
+    "vector_index",
+    "vectors",
+    "claims_policy",
+    "content_sha256"
+  ],
   "additionalProperties": false,
   "properties": {
-    "contract": { "const": "reg-projection" },
-    "contract_version": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" },
-    "generated_at": { "type": "string", "format": "date-time" },
+    "contract": {
+      "const": "reg-projection"
+    },
+    "contract_version": {
+      "type": "string",
+      "pattern": "^1\\.1\\.[0-9]+$"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
     "content_sha256": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$",
@@ -17,82 +42,263 @@
     },
     "source": {
       "type": "object",
-      "required": ["repository", "commit", "commit_date", "catalog_version", "rules_version", "capabilities_version"],
+      "required": [
+        "repository",
+        "commit",
+        "commit_date",
+        "exact_tag",
+        "catalog_version",
+        "rules_version",
+        "capabilities_version",
+        "files"
+      ],
       "properties": {
-        "repository": { "type": "string", "format": "uri" },
-        "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
-        "commit_date": { "type": "string", "format": "date-time" },
-        "describe": { "type": ["string", "null"] },
-        "exact_tag": { "type": ["string", "null"] },
-        "catalog_version": { "type": "string" },
-        "rules_version": { "type": "string" },
-        "capabilities_version": { "type": "string" }
-      }
+        "repository": {
+          "type": "string",
+          "format": "uri"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "commit_date": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "exact_tag": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The tag named in source.lock.json, verified to point to commit. Never read from the tags a clone happens to hold."
+        },
+        "catalog_version": {
+          "type": "string"
+        },
+        "rules_version": {
+          "type": "string"
+        },
+        "capabilities_version": {
+          "type": "string"
+        },
+        "files": {
+          "type": "array",
+          "description": "Every file of the source the projection read, with its sha256 at commit.",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "sha256",
+              "bytes"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "claims": {
       "type": "object",
-      "required": ["conformance_claims_allowed", "subjects", "reason"],
+      "required": [
+        "conformance_claims_allowed",
+        "subjects",
+        "reason"
+      ],
       "properties": {
-        "conformance_claims_allowed": { "type": "boolean" },
-        "subjects": { "type": "array", "maxItems": 0, "description": "Reserved for projection v1.1 (subject runs). Must stay empty in v1.0." },
-        "reason": { "type": "string" }
+        "conformance_claims_allowed": {
+          "type": "boolean"
+        },
+        "subjects": {
+          "type": "array",
+          "maxItems": 0,
+          "description": "Reserved for projection v1.1 (subject runs). Must stay empty in v1.0."
+        },
+        "reason": {
+          "type": "string"
+        }
       }
     },
     "guards": {
       "type": "object",
-      "required": ["passed", "findings"],
+      "required": [
+        "passed",
+        "findings"
+      ],
       "properties": {
-        "passed": { "type": "boolean" },
+        "passed": {
+          "type": "boolean"
+        },
         "findings": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["level", "code", "message"],
+            "required": [
+              "level",
+              "code",
+              "message"
+            ],
             "properties": {
-              "level": { "enum": ["error", "warning"] },
-              "code": { "type": "string" },
-              "message": { "type": "string" }
-            }
-          }
-        }
-      }
-    },
-    "summary": { "type": "object" },
-    "axes": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["id", "values"],
-        "properties": {
-          "id": { "type": "string" },
-          "description": { "type": ["string", "null"] },
-          "values": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": ["value", "capability_id", "required_evidence"],
-              "properties": {
-                "value": { "type": "string" },
-                "capability_id": { "type": ["string", "null"] },
-                "description": { "type": ["string", "null"] },
-                "required_evidence": { "type": "array", "items": { "type": "string" } }
+              "level": {
+                "enum": [
+                  "error",
+                  "warning"
+                ]
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
               }
             }
           }
         }
       }
     },
-    "invariants": { "type": "array" },
+    "summary": {
+      "type": "object",
+      "required": [
+        "configurations_total",
+        "configurations_admissible",
+        "configurations_by_state",
+        "guarantee_records_total",
+        "guarantee_records_bound",
+        "vectors_total",
+        "vectors_registered",
+        "candidates_total",
+        "vectors_superseded",
+        "vectors_by_index_status",
+        "vectors_by_reference_kernel_result",
+        "reference_kernel_pass",
+        "index_rows_without_vector"
+      ],
+      "properties": {
+        "vectors_registered": {
+          "type": "integer",
+          "description": "Entries of the vectors: lists of vectors/*.yaml, the runner's registered vector ids."
+        },
+        "candidates_total": {
+          "type": "integer",
+          "description": "Entries of the candidates: and non_validated: lists. Not registered vectors."
+        },
+        "reference_kernel_pass": {
+          "type": "object",
+          "required": [
+            "total",
+            "by_index_status",
+            "superseded"
+          ]
+        }
+      }
+    },
+    "axes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "values"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "value",
+                "capability_id",
+                "required_evidence"
+              ],
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "capability_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "required_evidence": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "invariants": {
+      "type": "array"
+    },
     "guarantee_records": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "name", "evidence_bound", "evidence_problems", "evidence_artifact", "demonstration_scope", "source_path"],
+        "required": [
+          "id",
+          "name",
+          "evidence_bound",
+          "evidence_problems",
+          "evidence_artifact",
+          "demonstration_scope",
+          "source_path",
+          "source_sha256"
+        ],
         "properties": {
-          "evidence_bound": { "type": "boolean" },
-          "evidence_problems": { "type": "array", "items": { "type": "string" } },
-          "evidence_artifact": { "type": ["string", "null"] },
-          "demonstration_scope": { "enum": ["production-equivalent", "loopback-test-only", null] }
+          "evidence_bound": {
+            "type": "boolean"
+          },
+          "evidence_problems": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence_artifact": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "demonstration_scope": {
+            "enum": [
+              "production-equivalent",
+              "loopback-test-only",
+              null
+            ]
+          }
         }
       }
     },
@@ -100,12 +306,37 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "config", "admissible_structural", "violations", "capability_refs", "catalog_claim", "state"],
+        "required": [
+          "id",
+          "config",
+          "admissible_structural",
+          "violations",
+          "capability_refs",
+          "catalog_claim",
+          "state"
+        ],
         "properties": {
-          "state": { "enum": ["demonstrated", "partial", "not_evaluated", "refuted", "inadmissible"] },
-          "admissible_structural": { "type": "boolean" },
-          "violations": { "type": "array" },
-          "capability_refs": { "type": "array", "items": { "type": "string" } }
+          "state": {
+            "enum": [
+              "demonstrated",
+              "partial",
+              "not_evaluated",
+              "refuted",
+              "inadmissible"
+            ]
+          },
+          "admissible_structural": {
+            "type": "boolean"
+          },
+          "violations": {
+            "type": "array"
+          },
+          "capability_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       }
     },
@@ -113,11 +344,175 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "category", "status", "reference_kernel_result"],
+        "required": [
+          "id",
+          "registry",
+          "file",
+          "line",
+          "category",
+          "status",
+          "superseded_by",
+          "reference_kernel_result",
+          "index"
+        ],
         "properties": {
           "reference_kernel_result": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "Result of the runner's native mode on the repository's reference kernel. Never a result for a product."
+          },
+          "registry": {
+            "enum": [
+              "vector",
+              "candidate",
+              "non_validated"
+            ],
+            "description": "vector: a registered vector id. candidate / non_validated: a proposal the runner does not register."
+          },
+          "file": {
+            "type": "string"
+          },
+          "line": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "superseded_by": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "index": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The vector's row in VECTORS.md, the index whose status a quote must keep (CLAIMS.md).",
+            "properties": {
+              "status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "clause_id",
+          "rule_id",
+          "description",
+          "condition",
+          "requires"
+        ]
+      }
+    },
+    "vector_index": {
+      "type": "object",
+      "required": [
+        "present",
+        "path",
+        "notes",
+        "status_definitions",
+        "rows_without_vector"
+      ],
+      "properties": {
+        "present": {
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status_definitions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "rows_without_vector": {
+          "type": "array",
+          "description": "Rows of the index with no registered vector: properties the RFCs state that no vector of the runner exercises.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "status"
+            ]
+          }
+        }
+      }
+    },
+    "claims_policy": {
+      "type": "object",
+      "required": [
+        "present",
+        "path",
+        "sha256"
+      ],
+      "description": "CLAIMS.md at the source commit, verbatim: which sections it says are in force, and what each says. Absent before reg-conformance v0.7.0.",
+      "properties": {
+        "present": {
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "in_force_sections": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "title",
+              "status",
+              "parts",
+              "parts_in_force",
+              "paragraphs",
+              "quotes",
+              "bullets",
+              "steps",
+              "tables"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "in_force",
+                  "partly_in_force",
+                  "draft",
+                  "unknown"
+                ]
+              }
+            }
           }
         }
       }

@@ -16,6 +16,7 @@ from reg_platform.project import build, content_hash
 
 SOURCE = Path(os.environ.get("REG_CONFORMANCE", Path(__file__).resolve().parents[2] / "reg-conformance"))
 PATHS = ["catalog", "capabilities", "vectors"]
+FILES = ["VECTORS.md", "CLAIMS.md"]
 
 
 def git(cwd, *args):
@@ -27,6 +28,9 @@ class Fixture:
         self.tmp = Path(tempfile.mkdtemp())
         for p in PATHS:
             shutil.copytree(SOURCE / p, self.tmp / p)
+        for f in FILES:
+            if (SOURCE / f).is_file():
+                shutil.copy2(SOURCE / f, self.tmp / f)
         git(self.tmp, "init", "-q")
         git(self.tmp, "-c", "user.email=t@t", "-c", "user.name=t", "add", ".")
         self.commit("base")
@@ -145,6 +149,72 @@ class GuardTests(unittest.TestCase):
     def test_wrong_commit_is_refused(self):
         p = build(self.f.tmp, "deadbeef")
         self.assertIn("SRC-COMMIT", {x["code"] for x in p["guards"]["findings"]})
+
+    # --- contract 1.1 -----------------------------------------------------
+
+    def test_content_does_not_depend_on_the_tags_of_the_clone(self):
+        before = build(self.f.tmp, None)["content_sha256"]
+        git(self.f.tmp, "tag", "v9.9.9")
+        git(self.f.tmp, "tag", "-a", "-m", "annotated", "v9.9.8", "HEAD")
+        self.assertEqual(build(self.f.tmp, None)["content_sha256"], before)
+
+    def test_lock_tag_must_point_to_the_commit(self):
+        p = build(self.f.tmp, None, "v1.0.0")
+        self.assertIn("SRC-TAG", {x["code"] for x in p["guards"]["findings"]})
+        self.assertIsNone(p["source"]["exact_tag"])
+        git(self.f.tmp, "tag", "v1.0.0")
+        p = build(self.f.tmp, None, "v1.0.0")
+        self.assertTrue(p["guards"]["passed"], p["guards"]["findings"])
+        self.assertEqual(p["source"]["exact_tag"], "v1.0.0")
+
+    def test_candidates_are_not_counted_as_vectors(self):
+        import yaml
+        reg = cand = 0
+        for name in ("core", "commit", "extended", "proposals"):
+            d = yaml.safe_load((self.f.tmp / "vectors" / f"{name}.yaml").read_text()) or {}
+            reg += len(d.get("vectors") or [])
+            cand += len(d.get("candidates") or []) + len(d.get("non_validated") or [])
+        s = build(self.f.tmp, None)["summary"]
+        self.assertEqual(s["vectors_registered"], reg)
+        self.assertEqual(s["candidates_total"], cand)
+        self.assertEqual(s["vectors_total"], reg + cand)
+
+    @unittest.skipUnless((SOURCE / "VECTORS.md").is_file(), "VECTORS.md not in this checkout")
+    def test_index_status_comes_from_vectors_md(self):
+        p = build(self.f.tmp, None)
+        c1 = next(v for v in p["vectors"] if v["id"] == "C1")
+        self.assertEqual(c1["index"]["status"], "IMPLEMENTED")
+        idx = self.f.tmp / "VECTORS.md"
+        idx.write_text("\n".join(l for l in idx.read_text().splitlines() if not l.startswith("|C1|")) + "\n")
+        self.f.commit("drop C1 row")
+        p = build(self.f.tmp, None)
+        self.assertIsNone(next(v for v in p["vectors"] if v["id"] == "C1")["index"])
+        self.assertIn("VEC-INDEX-MISSING", {x["code"] for x in p["guards"]["findings"]})
+        self.assertTrue(p["guards"]["passed"])
+
+    def test_claims_policy_is_read_verbatim(self):
+        (self.f.tmp / "CLAIMS.md").write_text(
+            "# What a result lets you say\n\nTwo sections are in force: \"Quoting\" and \"Part b\", "
+            "ratified on 1 May. The rest is not yet in force.\n\n## Quoting\n\n> Assessed against `<v>`.\n\n"
+            "## Mixed\n\n**Part a.** Text.\n\n**Part b.** More.\n\n## Later\n\n- That a run\n  is a score.\n")
+        self.f.commit("claims")
+        cp = build(self.f.tmp, None)["claims_policy"]
+        self.assertTrue(cp["present"])
+        by = {s["title"]: s for s in cp["sections"]}
+        self.assertEqual(by["Quoting"]["status"], "in_force")
+        self.assertEqual(by["Quoting"]["quotes"], ["Assessed against <v>."])
+        self.assertEqual(by["Mixed"]["status"], "partly_in_force")
+        self.assertEqual(by["Mixed"]["parts_in_force"], ["Part b"])
+        self.assertEqual(by["Later"]["status"], "draft")
+        self.assertEqual(by["Later"]["bullets"], ["That a run is a score."])
+
+    def test_every_file_read_is_listed_with_its_hash(self):
+        p = build(self.f.tmp, None)
+        paths = {f["path"] for f in p["source"]["files"]}
+        self.assertIn("catalog/valid-configurations-v1.1.0.json", paths)
+        self.assertIn("vectors/core.yaml", paths)
+        for f in p["source"]["files"]:
+            self.assertEqual(hashlib.sha256((self.f.tmp / f["path"]).read_bytes()).hexdigest(), f["sha256"])
 
 
 if __name__ == "__main__":
