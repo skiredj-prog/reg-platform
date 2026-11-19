@@ -9,7 +9,7 @@ reg-conformance (catalogue, vectors, evidence)   ← source of truth
         │  source.lock.json pins one commit
         ▼
 reg-platform  →  projection/projection-v1.json   ← contract: contracts/projection-v1.schema.json
-        │        badges/*.svg
+        │        badges/*.svg, badges/en/*.svg
         │  reg-site pins content_sha256
         ▼
 reg-site (static pages)

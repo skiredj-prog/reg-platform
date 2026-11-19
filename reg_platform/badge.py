@@ -24,6 +24,14 @@ STATES = {
     "refuted": ("réfuté", "#a1262d"),
     "inadmissible": ("non admissible", "#374151"),
 }
+# English labels, written to badges/en/ with the same colours.
+STATES_EN = {
+    "demonstrated": "demonstrated",
+    "partial": "partial",
+    "not_evaluated": "not evaluated",
+    "refuted": "refuted",
+    "inadmissible": "not admissible",
+}
 LEFT = "REG+ config"
 LEFT_COLOR = "#13212c"
 
@@ -33,8 +41,10 @@ def text_width(s: str) -> int:
     return int(sum(7.2 if c.isupper() else 6.1 for c in s)) + 12
 
 
-def svg(state: str, title: str) -> str:
+def svg(state: str, title: str, lang: str = "fr") -> str:
     label, color = STATES[state]
+    if lang == "en":
+        label = STATES_EN[state]
     lw, rw = text_width(LEFT), text_width(label)
     w = lw + rw
     return (
@@ -68,22 +78,24 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     p = load_verified(args.projection)
     commit = p["source"]["commit"][:12]
-    args.out.mkdir(parents=True, exist_ok=True)
-    for old in args.out.glob("*.svg"):
-        old.unlink()
     n = 0
-    for state in STATES:
-        (args.out / f"state-{state}.svg").write_text(
-            svg(state, f"REG+ configuration state: {STATES[state][0]}"), encoding="utf-8")
-        n += 1
-    for c in p["configurations"]:
-        if not c["admissible_structural"]:
-            continue
-        title = (f"REG+ {c['id']}: {STATES[c['state']][0]} "
-                 f"(reg-conformance {commit}). Not a conformance claim.")
-        (args.out / f"{c['id']}.svg").write_text(svg(c["state"], title), encoding="utf-8")
-        n += 1
-    print(f"{n} badges written to {args.out}")
+    for lang, out in (("fr", args.out), ("en", args.out / "en")):
+        out.mkdir(parents=True, exist_ok=True)
+        for old in out.glob("*.svg"):
+            old.unlink()
+        name = (lambda s: STATES[s][0]) if lang == "fr" else (lambda s: STATES_EN[s])
+        for state in STATES:
+            (out / f"state-{state}.svg").write_text(
+                svg(state, f"REG+ configuration state: {name(state)}", lang), encoding="utf-8")
+            n += 1
+        for c in p["configurations"]:
+            if not c["admissible_structural"]:
+                continue
+            title = (f"REG+ {c['id']}: {name(c['state'])} "
+                     f"(reg-conformance {commit}). Not a conformance claim.")
+            (out / f"{c['id']}.svg").write_text(svg(c["state"], title, lang), encoding="utf-8")
+            n += 1
+    print(f"{n} badges written to {args.out} and {args.out / 'en'}")
     return 0
 
 
