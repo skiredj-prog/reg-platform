@@ -14,6 +14,14 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - name: Check out reg-conformance at the pinned commit
+        run: |
+          REPO=$(python3 -c "import json;print(json.load(open('source.lock.json'))['repository'])")
+          COMMIT=$(python3 -c "import json;print(json.load(open('source.lock.json'))['commit'])")
+          git clone -q "$REPO" .cache/reg-conformance
+          git -C .cache/reg-conformance -c advice.detachedHead=false checkout -q "$COMMIT"
+      - name: Install what the native replay needs
+        run: pip install -r .cache/reg-conformance/requirements.txt
       - run: ./run_all.sh
       - name: Committed projection matches the pinned source
         run: |
@@ -25,3 +33,4 @@ jobs:
           path: |
             projection/projection-v1.json
             badges/
+            .cache/native-report.json

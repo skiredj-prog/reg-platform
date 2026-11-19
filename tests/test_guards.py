@@ -208,6 +208,25 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(by["Later"]["status"], "draft")
         self.assertEqual(by["Later"]["bullets"], ["That a run is a score."])
 
+    def test_native_replay_must_match_the_registry(self):
+        p = build(self.f.tmp, None)
+        reg = [v for v in p["vectors"] if v["registry"] == "vector"]
+        report = {"interface_mode": "native", "suite": "test",
+                  "results": [{"vector_id": v["id"], "status": v["reference_kernel_result"]} for v in reg]}
+        path = self.f.tmp.parent / (self.f.tmp.name + "-native.json")
+        try:
+            path.write_text(json.dumps(report))
+            ok = build(self.f.tmp, None, None, path)
+            self.assertTrue(ok["guards"]["passed"], ok["guards"]["findings"])
+            self.assertEqual(ok["reference_kernel_replay"]["matching_registry"], len(reg))
+            report["results"][0]["status"] = "FAIL" if reg[0]["reference_kernel_result"] != "FAIL" else "PASS"
+            path.write_text(json.dumps(report))
+            bad = build(self.f.tmp, None, None, path)
+            self.assertIn("VEC-REPLAY-DRIFT", {x["code"] for x in bad["guards"]["findings"]})
+            self.assertFalse(bad["guards"]["passed"])
+        finally:
+            path.unlink(missing_ok=True)
+
     def test_every_file_read_is_listed_with_its_hash(self):
         p = build(self.f.tmp, None)
         paths = {f["path"] for f in p["source"]["files"]}

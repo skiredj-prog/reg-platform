@@ -28,6 +28,10 @@ published.
 - `claims_policy`: `CLAIMS.md` verbatim, section by section, with the status
   the file gives each section (`in_force`, `partly_in_force`, `draft`,
   `unknown`). `present: false` before reg-conformance v0.7.0.
+- `reference_kernel_replay`: reg-platform runs `runner.py --mode native` at
+  the pinned commit and compares every registered vector with the
+  registry's `native` value. A difference, a missing or an extra id fails
+  the guards (`VEC-REPLAY-*`). Each vector carries its replayed status.
 - Guarantee records carry `source_sha256` and `perimeter_rejected_by`.
   Invariants carry `scope`, `applies_to` and `contract_ref`.
 

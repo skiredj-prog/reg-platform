@@ -26,9 +26,10 @@ pip install -r requirements.txt
 REG_CONFORMANCE=../reg-conformance ./run_all.sh   # or use a local checkout
 ```
 
-`run_all.sh` checks out the pinned commit, builds the projection, validates
-it against the schema, renders the badges and runs the guard tests. Any
-failure stops it.
+`run_all.sh` checks out the pinned commit, replays the reference kernel there
+(`runner.py --mode native`, which needs reg-conformance's own
+`requirements.txt`), builds the projection, validates it against the
+schema, renders the badges and runs the guard tests. Any failure stops it.
 
 ## Guards
 
@@ -50,7 +51,12 @@ such a projection.
 | `REC-PERIMETER` | warning | a guarantee record declares a perimeter the rules reject |
 | `VEC-DIST-STALE` | warning | `vectors/dist/vectors.json` differs from the YAML sources |
 | `VEC-INDEX-ABSENT`, `VEC-INDEX-MISSING` | warning | `VECTORS.md` is absent, or has no row for a registered vector |
+| `VEC-REPLAY-DRIFT`, `-MISSING`, `-EXTRA`, `-MODE` | error | the native replay at the pinned commit disagrees with the registry's reference-kernel results |
 | `CLAIMS-STATUS` | warning | `CLAIMS.md` does not say, in a form read here, which sections are in force |
+
+**Replayed, not copied.** The reference-kernel result of each vector is the
+registry's `native` value, checked against a native run made here at the
+same commit. At `b943f06`: 56 of 56 identical.
 
 **Reproducible.** The content depends on `source.lock.json` only: the
 commit, and the tag when the lock names one. Tags the clone happens to hold

@@ -19,6 +19,7 @@
     "configurations",
     "vector_index",
     "vectors",
+    "reference_kernel_replay",
     "claims_policy",
     "content_sha256"
   ],
@@ -353,7 +354,8 @@
           "status",
           "superseded_by",
           "reference_kernel_result",
-          "index"
+          "index",
+          "reference_kernel_replay"
         ],
         "properties": {
           "reference_kernel_result": {
@@ -400,6 +402,13 @@
                 ]
               }
             }
+          },
+          "reference_kernel_replay": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Status this vector got in the native run made by reg-platform at the source commit; null when no run was made or the id is not a registered vector."
           }
         }
       }
@@ -514,6 +523,36 @@
               }
             }
           }
+        }
+      }
+    },
+    "reference_kernel_replay": {
+      "type": "object",
+      "required": [
+        "performed"
+      ],
+      "description": "A native run of the runner at the source commit, compared vector by vector with the registry's reference_kernel_result. Any difference fails the guards.",
+      "properties": {
+        "performed": {
+          "type": "boolean"
+        },
+        "suite": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "results_total": {
+          "type": "integer"
+        },
+        "matching_registry": {
+          "type": "integer"
+        },
+        "summary_by_basis": {
+          "type": [
+            "object",
+            "null"
+          ]
         }
       }
     }

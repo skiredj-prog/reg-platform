@@ -302,7 +302,45 @@ def vector_lines(text: str) -> dict[str, int]:
     return out
 
 
-def build(source: Path, expect_commit: str | None, expect_tag: str | None = None) -> dict:
+def replay_report(path: Path | None, registered: list[dict], finding) -> dict:
+    """Compare the registry's reference-kernel results with a native run of
+    the runner at the same commit. The projection does not take the
+    registry's word for it: any difference is an error."""
+    if path is None:
+        for v in registered:
+            v["reference_kernel_replay"] = None
+        return {"performed": False}
+    report = json.loads(path.read_text(encoding="utf-8"))
+    if report.get("interface_mode") != "native":
+        finding("error", "VEC-REPLAY-MODE", f"The replay report was not produced in native mode ({report.get('interface_mode')!r}).")
+    run = {r["vector_id"]: r["status"] for r in report.get("results", [])}
+    same = 0
+    for v in registered:
+        got = run.get(v["id"])
+        v["reference_kernel_replay"] = got
+        if v["id"] not in run:
+            finding("error", "VEC-REPLAY-MISSING", f"The native run has no result for {v['id']}.", vector=v["id"])
+        elif got != v["reference_kernel_result"]:
+            finding("error", "VEC-REPLAY-DRIFT",
+                    f"{v['id']}: the registry says {v['reference_kernel_result']}, the native run gives {got}.", vector=v["id"])
+        else:
+            same += 1
+    extra = sorted(set(run) - {v["id"] for v in registered})
+    if extra:
+        finding("error", "VEC-REPLAY-EXTRA", f"The native run reports ids the registry does not hold: {', '.join(extra)}.")
+    return {
+        "performed": True,
+        "suite": report.get("suite"),
+        "interface_mode": report.get("interface_mode"),
+        "evidence_level": report.get("evidence_level"),
+        "results_total": len(run),
+        "matching_registry": same,
+        "summary_by_basis": report.get("summary_by_basis"),
+    }
+
+
+def build(source: Path, expect_commit: str | None, expect_tag: str | None = None,
+          native_report: Path | None = None) -> dict:
     findings: list[dict] = []
 
     def finding(level: str, code: str, message: str, **extra):
@@ -501,6 +539,9 @@ def build(source: Path, expect_commit: str | None, expect_tag: str | None = None
     if dupes:
         finding("error", "VEC-DUPLICATE", f"Duplicate vector ids: {', '.join(dupes)}.")
     registered = [v for v in vectors if v["registry"] == "vector"]
+    for v in vectors:
+        v.setdefault("reference_kernel_replay", None)
+    replay = replay_report(native_report, registered, finding)
     # Rows the index lists with no registered vector: properties the RFCs
     # state that no vector of the runner exercises. Shown, not hidden.
     registered_ids = {v["id"] for v in registered}
@@ -608,6 +649,7 @@ def build(source: Path, expect_commit: str | None, expect_tag: str | None = None
             "rows_without_vector": index_only,
         },
         "vectors": vectors,
+        "reference_kernel_replay": replay,
         "claims_policy": claims_policy,
     }
     projection["content_sha256"] = content_hash(projection)
@@ -628,9 +670,11 @@ def main(argv=None) -> int:
     ap.add_argument("--source", required=True, type=Path)
     ap.add_argument("--expect-commit")
     ap.add_argument("--expect-tag", default="")
+    ap.add_argument("--native-report", type=Path,
+                    help="report of `runner.py --mode native` at the same commit; its results must match the registry")
     ap.add_argument("--out", required=True, type=Path)
     args = ap.parse_args(argv)
-    projection = build(args.source.resolve(), args.expect_commit, args.expect_tag or None)
+    projection = build(args.source.resolve(), args.expect_commit, args.expect_tag or None, args.native_report)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(projection, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     for f in projection["guards"]["findings"]:
