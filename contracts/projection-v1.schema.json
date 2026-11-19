@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reg.tenirlabs.cc/contracts/projection-v1.schema.json",
+  "title": "REG projection v1.0.0",
+  "description": "The only data the presentation layer reads. Produced by reg-platform from one exact reg-conformance commit. A projection never lets a reader infer conformance: claims.conformance_claims_allowed is false until a subject run with bound evidence is projected, and a configuration state other than not_evaluated or inadmissible requires bound evidence on every record it cites.",
+  "type": "object",
+  "required": ["contract", "contract_version", "generated_at", "source", "claims", "guards", "summary", "axes", "invariants", "guarantee_records", "configurations", "vectors", "content_sha256"],
+  "additionalProperties": false,
+  "properties": {
+    "contract": { "const": "reg-projection" },
+    "contract_version": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "content_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "sha256 of the canonical JSON (sorted keys, no spaces, UTF-8) of every field except content_sha256 and generated_at."
+    },
+    "source": {
+      "type": "object",
+      "required": ["repository", "commit", "commit_date", "catalog_version", "rules_version", "capabilities_version"],
+      "properties": {
+        "repository": { "type": "string", "format": "uri" },
+        "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "commit_date": { "type": "string", "format": "date-time" },
+        "describe": { "type": ["string", "null"] },
+        "exact_tag": { "type": ["string", "null"] },
+        "catalog_version": { "type": "string" },
+        "rules_version": { "type": "string" },
+        "capabilities_version": { "type": "string" }
+      }
+    },
+    "claims": {
+      "type": "object",
+      "required": ["conformance_claims_allowed", "subjects", "reason"],
+      "properties": {
+        "conformance_claims_allowed": { "type": "boolean" },
+        "subjects": { "type": "array", "maxItems": 0, "description": "Reserved for projection v1.1 (subject runs). Must stay empty in v1.0." },
+        "reason": { "type": "string" }
+      }
+    },
+    "guards": {
+      "type": "object",
+      "required": ["passed", "findings"],
+      "properties": {
+        "passed": { "type": "boolean" },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["level", "code", "message"],
+            "properties": {
+              "level": { "enum": ["error", "warning"] },
+              "code": { "type": "string" },
+              "message": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "summary": { "type": "object" },
+    "axes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "values"],
+        "properties": {
+          "id": { "type": "string" },
+          "description": { "type": ["string", "null"] },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["value", "capability_id", "required_evidence"],
+              "properties": {
+                "value": { "type": "string" },
+                "capability_id": { "type": ["string", "null"] },
+                "description": { "type": ["string", "null"] },
+                "required_evidence": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "invariants": { "type": "array" },
+    "guarantee_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "evidence_bound", "evidence_problems", "evidence_artifact", "demonstration_scope", "source_path"],
+        "properties": {
+          "evidence_bound": { "type": "boolean" },
+          "evidence_problems": { "type": "array", "items": { "type": "string" } },
+          "evidence_artifact": { "type": ["string", "null"] },
+          "demonstration_scope": { "enum": ["production-equivalent", "loopback-test-only", null] }
+        }
+      }
+    },
+    "configurations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "config", "admissible_structural", "violations", "capability_refs", "catalog_claim", "state"],
+        "properties": {
+          "state": { "enum": ["demonstrated", "partial", "not_evaluated", "refuted", "inadmissible"] },
+          "admissible_structural": { "type": "boolean" },
+          "violations": { "type": "array" },
+          "capability_refs": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "vectors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "category", "status", "reference_kernel_result"],
+        "properties": {
+          "reference_kernel_result": {
+            "type": ["string", "null"],
+            "description": "Result of the runner's native mode on the repository's reference kernel. Never a result for a product."
+          }
+        }
+      }
+    }
+  }
+}

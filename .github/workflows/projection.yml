@@ -1,0 +1,27 @@
+name: projection
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: ./run_all.sh
+      - name: Committed projection matches the pinned source
+        run: |
+          git diff --exit-code -I '"generated_at"' -- projection/ badges/ || {
+            echo "::error::projection/ or badges/ are out of date. Run ./run_all.sh and commit."; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: projection-v1
+          path: |
+            projection/projection-v1.json
+            badges/
