@@ -56,7 +56,7 @@ such a projection.
 
 **Replayed, not copied.** The reference-kernel result of each vector is the
 registry's `native` value, checked against a native run made here at the
-same commit. At `b943f06`: 56 of 56 identical.
+same commit. At `20016d2` (v0.7.0): 61 of 61 identical.
 
 **Reproducible.** The content depends on `source.lock.json` only: the
 commit, and the tag when the lock names one. Tags the clone happens to hold
@@ -85,13 +85,19 @@ repository's reference kernel, never a product.
 
 Contract history: [contracts/CHANGELOG.md](contracts/CHANGELOG.md).
 
-## State at the pinned commit (b943f06)
+## State at the pinned commit (20016d2, tag v0.7.0)
 
 42 of 144 configurations are admissible; all 42 are `not_evaluated`. None of
-the 13 guarantee records is bound. 56 registered vectors (14 IMPLEMENTED,
-17 DECLARED, 25 RESERVED in `VECTORS.md`; 14 pass on the reference kernel),
-plus 4 proposals the runner does not register. 28 rows of `VECTORS.md` have
-no registered vector.
+the 13 guarantee records is bound. 61 registered vectors (15 IMPLEMENTED,
+21 DECLARED, 25 RESERVED in `VECTORS.md`; 4 of them superseded), plus 4
+proposals the runner does not register. 28 rows of `VECTORS.md` have no
+registered vector.
+
+On the reference kernel: 15 PASS, 1 NOT_APPLICABLE, 1 ADAPTER_REQUIRED,
+44 IMPLEMENTATION_GAP. Of the 15 PASS, one is on a superseded vector
+(CT-R4-004) and one on a vector that rests on the ratified RFC-4 v0.3
+revision, outside the frozen baseline (CT-R4-004a). These describe the
+repository's reference kernel, not a product.
 
 Two warnings are open in reg-conformance and are reported, not fixed, here:
 `valid-configurations-v1.1.0.json` declares rules 2.0.0 while
