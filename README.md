@@ -4,6 +4,10 @@ The projection layer of REG. It reads `reg-conformance` at one pinned commit
 and writes one file, `projection/projection-v1.json`, that the presentation
 layer (`reg-site`) reads and nothing else.
 
+**Status: preview.** The site that reads this projection is not deployed.
+Nothing in this repository attests or certifies anything, and nothing here
+may be cited to say that a product conforms to REG (see **No claims** below).
+
 ```
 reg-conformance (catalogue, vectors, evidence)   ← source of truth
         │  source.lock.json pins one commit
