@@ -27,7 +27,9 @@ jobs:
         run: |
           git diff --exit-code -I '"generated_at"' -- projection/ badges/ || {
             echo "::error::projection/ or badges/ are out of date. Run ./run_all.sh and commit."; exit 1; }
+      # Kept when a step fails too, so a divergence can be compared field by field.
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: projection-v1
           path: |

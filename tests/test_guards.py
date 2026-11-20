@@ -155,8 +155,21 @@ class GuardTests(unittest.TestCase):
     def test_content_does_not_depend_on_the_tags_of_the_clone(self):
         before = build(self.f.tmp, None)["content_sha256"]
         git(self.f.tmp, "tag", "v9.9.9")
-        git(self.f.tmp, "tag", "-a", "-m", "annotated", "v9.9.8", "HEAD")
+        # An annotated tag needs an identity; CI runners have none configured.
+        git(self.f.tmp, "-c", "user.email=t@t", "-c", "user.name=t", "tag", "-a", "-m", "annotated", "v9.9.8", "HEAD")
         self.assertEqual(build(self.f.tmp, None)["content_sha256"], before)
+
+    def test_commit_date_does_not_depend_on_the_git_version(self):
+        # git >= 2.45 writes a zero offset as "Z" in its strict ISO format,
+        # earlier versions as "+00:00". The projection writes the date from
+        # the commit object, in one form, whichever git runs.
+        for stamp, expected in (("1795193353 +0000", "2026-11-20T16:49:13+00:00"),
+                                ("1700000000 -0530", "2023-11-14T16:43:20-05:30"),
+                                ("1700000000 +0545", "2023-11-15T03:58:20+05:45")):
+            env = {**os.environ, "GIT_COMMITTER_DATE": stamp}
+            subprocess.run(["git", "-C", str(self.f.tmp), "-c", "user.email=t@t", "-c", "user.name=t",
+                            "commit", "-q", "--allow-empty", "-m", stamp], check=True, capture_output=True, env=env)
+            self.assertEqual(build(self.f.tmp, None)["source"]["commit_date"], expected)
 
     def test_lock_tag_must_point_to_the_commit(self):
         p = build(self.f.tmp, None, "v1.0.0")

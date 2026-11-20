@@ -8,7 +8,8 @@ every disagreement instead of hiding it.
 
 The content of a projection depends on the pinned commit and on
 source.lock.json only: two honest builds of the same lock give the same
-content_sha256, whatever else the checkout holds (tags, other branches).
+content_sha256, whatever else the checkout holds (tags, other branches) and
+whichever version of git reads it.
 
 Usage:
     python -m reg_platform.project --source ../reg-conformance \
@@ -25,7 +26,7 @@ import json
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 try:
@@ -59,6 +60,26 @@ def git(source: Path, *args: str) -> str:
         ["git", "-C", str(source), *args],
         check=True, capture_output=True, text=True,
     ).stdout.strip()
+
+
+_COMMITTER = re.compile(rb"^committer .* (\d+) ([+-])(\d{2})(\d{2})$", re.M)
+
+
+def commit_date_of(source: Path, commit: str) -> str:
+    """The committer date of a commit, read from the commit object and
+    written in one form: YYYY-MM-DDTHH:MM:SS+HH:MM, in the committer's
+    offset. git's own strict ISO format is not used: since git 2.45 it
+    writes "Z" for a zero offset where earlier versions write "+00:00", and
+    the content of the projection must not depend on which git builds it.
+    The commit object cannot change without changing the commit id."""
+    raw = subprocess.run(["git", "-C", str(source), "cat-file", "commit", commit],
+                         check=True, capture_output=True).stdout
+    m = _COMMITTER.search(raw.split(b"\n\n", 1)[0])
+    if not m:
+        raise ValueError(f"commit {commit} has no committer line in a form this projection reads")
+    seconds, sign, hh, mm = int(m[1]), m[2], int(m[3]), int(m[4])
+    offset = timedelta(hours=hh, minutes=mm) * (-1 if sign == b"-" else 1)
+    return datetime.fromtimestamp(seconds, timezone(offset)).isoformat()
 
 
 class Reader:
@@ -379,7 +400,7 @@ def build(source: Path, expect_commit: str | None, expect_tag: str | None = None
         finding("error", "SRC-DIRTY", "The reg-conformance checkout has uncommitted changes.")
     if expect_commit and not commit.startswith(expect_commit):
         finding("error", "SRC-COMMIT", f"HEAD is {commit}, expected {expect_commit}.")
-    commit_date = git(source, "show", "-s", "--format=%cI", commit)
+    commit_date = commit_date_of(source, commit)
     # The tag comes from the lock, never from whatever tags the clone holds,
     # so the content does not depend on the state of the clone.
     tag = None

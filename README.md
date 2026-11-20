@@ -60,7 +60,9 @@ same commit. At `20016d2` (v0.7.0): 61 of 61 identical.
 
 **Reproducible.** The content depends on `source.lock.json` only: the
 commit, and the tag when the lock names one. Tags the clone happens to hold
-change nothing; a test checks it.
+change nothing, and neither does the version of git: the commit date is read
+from the commit object and written in one form (git's own ISO format writes
+`Z` for UTC since 2.45, `+00:00` before). Tests check both.
 
 **Bound evidence.** A guarantee record is bound only when its
 `test_results_hash` is the sha256 of a file tracked in reg-conformance at the
