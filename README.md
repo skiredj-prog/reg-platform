@@ -4,7 +4,10 @@ The projection layer of REG. It reads `reg-conformance` at one pinned commit
 and writes one file, `projection/projection-v1.json`, that the presentation
 layer (`reg-site`) reads and nothing else.
 
-**Status: preview.** The site that reads this projection is not deployed.
+**Status: preview.** The site that reads this projection is published only
+as a preview, at <https://preview.reg.tenirlabs.cc> (`noindex`, no public
+release; how it is deployed and checked:
+[reg-site/docs/DEPLOYMENT.md](https://github.com/skiredj-prog/reg-site/blob/main/docs/DEPLOYMENT.md)).
 Nothing in this repository attests or certifies anything, and nothing here
 may be cited to say that a product conforms to REG (see **No claims** below).
 
