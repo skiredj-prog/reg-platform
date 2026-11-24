@@ -60,7 +60,7 @@ such a projection.
 
 **Replayed, not copied.** The reference-kernel result of each vector is the
 registry's `native` value, checked against a native run made here at the
-same commit. At `20016d2` (v0.7.0): 61 of 61 identical.
+same commit. At `78dca34` (main, no tag): 61 of 61 identical.
 
 **Reproducible.** The content depends on `source.lock.json` only: the
 commit, and the tag when the lock names one. Tags the clone happens to hold
@@ -91,7 +91,7 @@ repository's reference kernel, never a product.
 
 Contract history: [contracts/CHANGELOG.md](contracts/CHANGELOG.md).
 
-## State at the pinned commit (20016d2, tag v0.7.0)
+## State at the pinned commit (78dca34, no tag)
 
 42 of 144 configurations are admissible; all 42 are `not_evaluated`. None of
 the 13 guarantee records is bound. 61 registered vectors (15 IMPLEMENTED,
