@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/skiredj-prog/reg-conformance",
-  "commit": "20016d271ce1d5420260116f8323aba707ad5dde",
-  "tag": "v0.7.0",
+  "commit": "78dca34c3e65e1ac51c74f3d2a2cfbfa0371e801",
+  "tag": null,
   "note": "Bump commit (and tag, when the commit carries one), run ./run_all.sh, and commit the new projection together. Nothing else moves the data."
 }
